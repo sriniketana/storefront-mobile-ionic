@@ -11,47 +11,45 @@ export class LoginPage {
   username: string;
   password: string;
   loginError = false;
-  private BlueAuthChallengeHandler: WL.Client.SecurityCheckChallengeHandler;
 
   constructor(public zone: NgZone, public navCtrl: NavController, public restService: BlueApiServiceProvider, private app: App, private utils: UtilsProvider) {
-    this.registerChallengeHandler()
+
   }
 
   login() {
     this.utils.presentLoading()
-    WLAuthorizationManager.login('BlueAuthLogin', {
-      username: this.username,
-      password: this.password,
-      scope: 'blue'
-    }).then((response) => {
-      console.log("Login Result" + JSON.stringify(response))
-      this.restService.userState.authenticated = true;
-      this.initializePush()
-    }, error => {
-      this.zone.run(() => {
-        this.utils.dismissLoading()
-        console.log("Login Error: " + JSON.stringify(error));
-        this.password = "";
-        this.loginError = true;
-      });
-    })
+    // var payload = {
+    //   grant_type: 'password',
+    //   scope: 'blue',
+    //   username: this.username,
+    //   password: this.password
+    // }
+    // this.restService.loginUser(payload, (response) => {
+    //   this.zone.run(() => {
+    //     console.log("Login Result" + JSON.stringify(response))
+        
+    //   });
+    // }, (error) => {
+    //   this.zone.run(() => {
+    //     this.utils.dismissLoading()
+    //     console.log("Login Error: " + JSON.stringify(error));
+    //     this.password = "";
+    //     this.loginError = true;
+    //   });
+    // });
+    this.restService.userState.accessToken = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJleHAiOjE1OTM0NTg0OTQsInVzZXJfbmFtZSI6IjhjNjI2NGE0YWU0ZTRhZDU5YmI3NTEwNDExZDRmNmI2IiwiYXV0aG9yaXRpZXMiOlsiUk9MRV9VU0VSIl0sImp0aSI6ImFkODNiNWNjLTVmNzUtNDIyNS05MGY2LWQ2NzhiMGJkMjBmMiIsImNsaWVudF9pZCI6ImJsdWVjb21wdXRld2ViIiwic2NvcGUiOlsiYmx1ZSJdfQ.HtIDRUk_R_fNsAdmxGWltl7wySszupxu1iOAnB3o5YM'
+    this.registerUserwithMFP();
   }
 
-  registerChallengeHandler() {
-    this.BlueAuthChallengeHandler = WL.Client.createSecurityCheckChallengeHandler("BlueAuthLogin");
-    this.BlueAuthChallengeHandler.handleChallenge = ((response: any) => {
-      console.log('BlueAuthChallengeHandler.handleChallenge called. Error : ' + response.errorMsg);
-      this.BlueAuthChallengeHandler.cancel()
-    });
+  parseJwt(token) {
+    var base64Url = token.split('.')[1];
+    var base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
+    var jsonPayload = decodeURIComponent(atob(base64).split('').map(function (c) {
+      return '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2);
+    }).join(''));
 
-    this.BlueAuthChallengeHandler.handleFailure = (error: any) => {
-      console.log('Login Failed : ' + JSON.stringify(error));
-    };
-    this.BlueAuthChallengeHandler.handleSuccess = (response: any) => {
-      console.log('Login Success : ' + JSON.stringify(response));
-      this.restService.userState.accessToken = response.user.attributes.access_token;
-    };
-  }
+    return JSON.parse(jsonPayload)['user_name'];
+  };
 
   navigateToCatalog() {
     this.zone.run(() => {
@@ -63,14 +61,37 @@ export class LoginPage {
     });
   }
 
+
+  registerUserwithMFP() {
+    var userID = this.parseJwt(this.restService.userState.accessToken)
+    WLAuthorizationManager.login('UserLogin', {
+      username: userID,
+      password: userID
+    }).then(() => {
+      this.restService.userState.authenticated = true;
+      this.navigateToCatalog()
+      this.initializePush()
+    }, error => {
+      console.log("UserLogin Failed : " + JSON.stringify(error))
+      this.utils.dismissLoading()
+      this.password = "";
+      this.loginError = true;
+    })
+  }
+
   initializePush() {
-    this.navigateToCatalog()
     MFPPush.initialize(
-      () => {
+      (successResponse) => {
         MFPPush.registerNotificationsCallback(this.notificationReceived);
-        MFPPush.registerDevice(null, this.successCallback, this.failureCallback)
+        WLAuthorizationManager.obtainAccessToken("push.mobileclient").then(
+          (accessToken) => {
+            this.utils.dismissLoading()
+            MFPPush.registerDevice(null, this.successCallback, this.failureCallback);
+          }
+        );
       },
-      () => {
+      (failureResponse) => {
+       // this.navigateToCatalog()
         console.log("Failed to initialize");
       }
     );
@@ -85,12 +106,12 @@ export class LoginPage {
   };
 
   successCallback = (response) => {
-    console.log("Push Registration Success: " + JSON.stringify(response));
+   // this.navigateToCatalog()
+    console.log("Success: " + JSON.stringify(response));
   };
 
   failureCallback = (response) => {
-    console.log("Push Registration Error: " + JSON.stringify(response));
+  //  this.navigateToCatalog()
+    console.log("Error: " + JSON.stringify(response));
   };
 }
-
-
